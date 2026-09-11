@@ -1,0 +1,1 @@
+export default function handler(req,res){const url=process.env.SUPABASE_URL,key=process.env.SUPABASE_PUBLISHABLE_KEY;if(!url||!key)return res.status(503).json({error:'Autenticação ainda não configurada no ambiente.'});res.setHeader('Cache-Control','public, s-maxage=300');return res.status(200).json({url,key});}
