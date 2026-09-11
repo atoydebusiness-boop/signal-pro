@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Signal Pro - Quotex OTC Bridge
 // @namespace    signal-pro
-// @version      0.2.0
-// @description  Captura somente dados de mercado OTC visíveis no WebSocket da Quotex para diagnóstico do Signal Pro. Não envia ordens nem captura credenciais.
+// @version      0.3.0
+// @description  Detecta todos os ativos OTC vistos no fluxo de mercado da Quotex e mostra o status na própria tela. Não envia ordens nem captura credenciais.
 // @match        https://qxbroker.com/*
 // @match        https://*.qxbroker.com/*
 // @match        https://quotex.com/*
@@ -13,77 +13,109 @@
 
 (() => {
   'use strict';
-
   if (window.__SIGNAL_PRO_OTC_BRIDGE__) return;
   window.__SIGNAL_PRO_OTC_BRIDGE__ = true;
 
-  const CHANNEL = 'signal-pro-otc-v2';
   const NativeWebSocket = window.WebSocket;
-  const recent = new Map();
+  const assets = new Map();
+  let messages = 0;
+  let lastMarketAt = 0;
+  let panel;
 
-  const emit = (type, payload = {}) => {
-    window.postMessage({ channel: CHANNEL, type, payload, at: Date.now() }, '*');
-  };
+  const sensitive = /authorization|ssid|token|password|cookie|balance|deposit|withdraw|order|email/i;
+  const marketWords = /otc|candle|quote|price|tick|history|asset/i;
+  const assetPattern = /\b([A-Z]{3}[\/_-]?[A-Z]{3}(?:[_-]?OTC)?)\b/gi;
 
-  const safeText = value => typeof value === 'string' ? value : '';
-  const looksSensitive = text => /authorization|ssid|token|password|balance|deposit|withdraw|order/i.test(text);
-  const looksMarket = text => /otc|candle|quote|price|tick|history|asset/i.test(text);
+  function normalizeAsset(v) {
+    return String(v || '').toUpperCase().replace('/', '').replace('-', '_');
+  }
 
-  function sanitize(value, depth = 0) {
-    if (depth > 5 || value == null) return null;
-    if (Array.isArray(value)) return value.slice(0, 500).map(v => sanitize(v, depth + 1));
-    if (typeof value !== 'object') return value;
+  function rememberAsset(name, price) {
+    const n = normalizeAsset(name);
+    if (!n || !/^[A-Z]{6}(?:_?OTC)?$/.test(n)) return;
+    const key = n.includes('OTC') ? n.replace(/_?OTC$/, '_OTC') : n;
+    const old = assets.get(key) || { count: 0, price: null, at: 0 };
+    old.count++;
+    old.at = Date.now();
+    if (Number.isFinite(Number(price))) old.price = Number(price);
+    assets.set(key, old);
+  }
 
-    const out = {};
-    for (const [key, val] of Object.entries(value)) {
-      if (/ssid|token|auth|password|cookie|balance|deposit|withdraw|order|user|email/i.test(key)) continue;
-      if (/asset|symbol|pair|time|timestamp|open|high|low|close|price|value|payout|period|timeframe|candl|quote|tick|history/i.test(key)) {
-        out[key] = sanitize(val, depth + 1);
-      } else if (val && typeof val === 'object') {
-        const nested = sanitize(val, depth + 1);
-        if (nested && (Array.isArray(nested) ? nested.length : Object.keys(nested).length)) out[key] = nested;
-      }
+  function walk(value, parent = {}) {
+    if (value == null) return;
+    if (Array.isArray(value)) { value.slice(0, 2000).forEach(v => walk(v, parent)); return; }
+    if (typeof value !== 'object') return;
+
+    let asset = value.asset || value.symbol || value.pair || value.active;
+    let price = value.price ?? value.close ?? value.value;
+    if (asset) rememberAsset(asset, price);
+
+    for (const [k, v] of Object.entries(value)) {
+      if (sensitive.test(k)) continue;
+      if (typeof v === 'string') {
+        const matches = v.toUpperCase().match(assetPattern) || [];
+        matches.forEach(a => rememberAsset(a));
+      } else if (v && typeof v === 'object') walk(v, value);
     }
-    return out;
   }
 
-  function parseSocketIo(text) {
-    const trimmed = text.trim();
-    const start = trimmed.indexOf('[');
+  function parse(text) {
+    const start = text.indexOf('[');
     if (start < 0) return null;
-    try { return JSON.parse(trimmed.slice(start)); } catch { return null; }
+    try { return JSON.parse(text.slice(start)); } catch { return null; }
   }
 
-  function publishCandidate(raw) {
-    const text = safeText(raw);
-    if (!text || text.length > 2_000_000 || looksSensitive(text) || !looksMarket(text)) return;
+  function processMessage(raw) {
+    if (typeof raw !== 'string' || raw.length > 2_000_000) return;
+    if (sensitive.test(raw) || !marketWords.test(raw)) return;
+    const data = parse(raw);
+    if (!data) return;
+    messages++;
+    lastMarketAt = Date.now();
+    walk(data);
+    render();
+  }
 
-    const parsed = parseSocketIo(text);
-    if (!parsed) return;
-    const clean = sanitize(parsed);
-    if (!clean) return;
+  function ensurePanel() {
+    if (panel || !document.body) return;
+    panel = document.createElement('div');
+    panel.id = 'signal-pro-otc-panel';
+    Object.assign(panel.style, {
+      position:'fixed', right:'16px', bottom:'16px', width:'300px', maxHeight:'360px', overflow:'auto',
+      zIndex:'2147483647', background:'rgba(8,13,24,.96)', color:'#fff', border:'1px solid #26344d',
+      borderRadius:'14px', boxShadow:'0 12px 40px rgba(0,0,0,.45)', padding:'14px',
+      fontFamily:'Arial,sans-serif', fontSize:'12px', lineHeight:'1.4'
+    });
+    document.body.appendChild(panel);
+    render();
+  }
 
-    const serialized = JSON.stringify(clean);
-    if (serialized.length < 10) return;
-    const key = serialized.slice(0, 1200);
-    const now = Date.now();
-    if (recent.has(key) && now - recent.get(key) < 1000) return;
-    recent.set(key, now);
-    if (recent.size > 200) recent.delete(recent.keys().next().value);
-
-    emit('market-data', clean);
+  function render() {
+    ensurePanel();
+    if (!panel) return;
+    const age = lastMarketAt ? Date.now() - lastMarketAt : Infinity;
+    const connected = age < 10000;
+    const list = [...assets.entries()].sort((a,b) => b[1].at-a[1].at);
+    const otc = list.filter(([a]) => a.includes('OTC'));
+    const shown = (otc.length ? otc : list).slice(0, 30);
+    panel.innerHTML = `
+      <div style="font-size:14px;font-weight:800;margin-bottom:7px">SIGNAL PRO • OTC</div>
+      <div style="font-weight:700;color:${connected ? '#36e28a' : '#ffcc66'}">${connected ? '● RECEBENDO DADOS' : '● AGUARDANDO DADOS'}</div>
+      <div style="color:#9fb0c8;margin:5px 0 10px">Mensagens: ${messages} • Ativos detectados: ${assets.size}</div>
+      ${shown.length ? shown.map(([a,d]) => `<div style="display:flex;justify-content:space-between;border-top:1px solid #1c2940;padding:6px 0"><b>${a}</b><span>${d.price ?? 'dados ✓'}</span></div>`).join('') : '<div style="color:#9fb0c8">Abra um ativo OTC e aguarde alguns segundos.</div>'}
+      <div style="color:#708198;margin-top:9px">Somente leitura de mercado. Nenhuma ordem é enviada.</div>`;
   }
 
   function WrappedWebSocket(...args) {
     const ws = new NativeWebSocket(...args);
-    ws.addEventListener('message', event => publishCandidate(event.data));
+    ws.addEventListener('message', e => processMessage(e.data));
     return ws;
   }
-
   WrappedWebSocket.prototype = NativeWebSocket.prototype;
-  for (const key of ['CONNECTING','OPEN','CLOSING','CLOSED']) WrappedWebSocket[key] = NativeWebSocket[key];
+  ['CONNECTING','OPEN','CLOSING','CLOSED'].forEach(k => WrappedWebSocket[k] = NativeWebSocket[k]);
   window.WebSocket = WrappedWebSocket;
 
-  emit('bridge-ready', { version: '0.2.0', host: location.host });
-  console.info('[Signal Pro] OTC Bridge ativo. Somente dados de mercado são observados; ordens e credenciais são ignoradas.');
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', ensurePanel, {once:true});
+  else ensurePanel();
+  setInterval(render, 2000);
 })();
