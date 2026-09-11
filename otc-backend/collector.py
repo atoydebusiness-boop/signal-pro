@@ -1,7 +1,8 @@
 """Signal Pro OTC collector.
 
 Read-only market-data adapter. It never calls buy/sell/order methods.
-Authentication is entered locally at runtime and is never written by this script.
+Credentials are entered locally and are used only by PyQuotex to authenticate
+with Quotex; this script never sends or stores them in Signal Pro/GitHub.
 """
 import asyncio
 import getpass
@@ -15,7 +16,14 @@ from pyquotex.stable_api import Quotex
 ASSET = os.getenv("OTC_TEST_ASSET", "EURUSD_otc")
 BACKEND = os.getenv("OTC_BACKEND_URL", os.getenv("SIGNAL_PRO_OTC_BACKEND", "http://127.0.0.1:8787")).rstrip("/")
 SECRET = os.getenv("OTC_INGEST_SECRET", "")
-HOST = os.getenv("QUOTEX_HOST", "qxbroker.com")
+HOSTS = [
+    h.strip()
+    for h in os.getenv(
+        "QUOTEX_HOSTS",
+        "qxbroker.com,quotex.com,qxbroker.io,quotex.io,qxbroker.sqldb.tc",
+    ).split(",")
+    if h.strip()
+]
 
 
 def post_candles(asset, candles):
@@ -56,7 +64,8 @@ def normalize_closed(candles):
 
 def local_credentials():
     print("\n=== Signal Pro OTC - autenticacao local ===")
-    print("Os dados abaixo ficam somente neste processo e nao sao enviados ao Signal Pro.")
+    print("O login e usado localmente pelo PyQuotex para autenticar na Quotex.")
+    print("O Signal Pro nao recebe nem armazena seu email/senha.")
     email = input("Email da Quotex: ").strip()
     password = getpass.getpass("Senha da Quotex (nao aparece na tela): ")
     if not email or not password:
@@ -64,18 +73,70 @@ def local_credentials():
     return email, password
 
 
+async def close_client(client):
+    if not client:
+        return
+    try:
+        await client.close()
+    except Exception:
+        pass
+
+
+async def connect_read_only(email, password):
+    print("\n[Signal Pro] diagnostico de conexao DEMO (somente dados)")
+    print("[Signal Pro] Nenhuma ordem sera enviada.\n")
+
+    failures = []
+    for host in HOSTS:
+        client = None
+        print(f"[TESTE] {host} ...", end=" ", flush=True)
+        try:
+            client = Quotex(email=email, password=password, lang="pt", host=host)
+            # PyQuotex 1.1.x accepts the demo flag on connect in the current API.
+            try:
+                result = await asyncio.wait_for(client.connect(is_demo=True), timeout=20)
+            except TypeError:
+                # Compatibility with releases where demo is selected through account_is_demo.
+                client.account_is_demo = 1
+                result = await asyncio.wait_for(client.connect(), timeout=20)
+
+            ok = result[0] if isinstance(result, tuple) else bool(result)
+            reason = result[1] if isinstance(result, tuple) and len(result) > 1 else str(result)
+            if ok:
+                print("OK - conectado")
+                return client, host
+
+            print(f"FALHOU - {reason}")
+            failures.append((host, reason))
+        except asyncio.TimeoutError:
+            print("FALHOU - timeout")
+            failures.append((host, "timeout"))
+        except Exception as exc:
+            reason = str(exc) or exc.__class__.__name__
+            print(f"FALHOU - {reason}")
+            failures.append((host, reason))
+        await close_client(client)
+
+    print("\n[Signal Pro] Nenhum host suportado conectou.")
+    print("[Signal Pro] Diagnostico:")
+    for host, reason in failures:
+        print(f"  - {host}: {reason}")
+    print("[Signal Pro] Nao vamos tentar contornar bloqueios/Cloudflare automaticamente.")
+    return None, None
+
+
 async def main():
     if not SECRET:
         raise SystemExit("Configure OTC_INGEST_SECRET localmente antes de executar.")
 
     email, password = local_credentials()
-    print(f"[Signal Pro] conectando em {HOST} somente para dados...")
-    client = Quotex(email=email, password=password, lang="pt", host=HOST)
+    client = None
     try:
-        result = await client.connect()
-        if isinstance(result, tuple) and not result[0]:
-            raise RuntimeError(f"falha na conexao: {result[1]}")
-        print(f"[Signal Pro] conectado. Buscando M1 de {ASSET}...")
+        client, host = await connect_read_only(email, password)
+        if client is None:
+            raise SystemExit(2)
+
+        print(f"\n[Signal Pro] usando {host}. Buscando M1 de {ASSET}...")
         candles = await client.get_candles(
             asset=ASSET,
             end_from_time=time.time(),
@@ -86,15 +147,13 @@ async def main():
         print(f"[Signal Pro] recebidas={len(candles or [])} fechadas_validas={len(closed)}")
         if len(closed) < 60:
             raise RuntimeError("historico insuficiente para o motor de sinais")
+
         response = await asyncio.to_thread(post_candles, ASSET, closed)
         print("[Signal Pro] backend:", json.dumps(response, ensure_ascii=False))
         print("[Signal Pro] TESTE OK. Nenhuma ordem foi enviada.")
     finally:
         password = None
-        try:
-            await client.close()
-        except Exception:
-            pass
+        await close_client(client)
 
 
 if __name__ == "__main__":
