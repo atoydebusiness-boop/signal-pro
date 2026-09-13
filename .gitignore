@@ -1,0 +1,7 @@
+.env
+.env.*
+!.env.example
+connector/.venv/
+**/__pycache__/
+*.py[cod]
+*.log

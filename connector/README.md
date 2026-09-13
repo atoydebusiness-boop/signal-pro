@@ -1,37 +1,40 @@
 # Signal Pro Connector — MetaTrader 5
 
-Conector local do Signal Pro para um terminal MetaTrader 5 instalado no Windows.
+Este agente roda no mesmo **Windows** do terminal MetaTrader 5 e abre apenas conexões HTTPS de saída para o Signal Pro. A senha MT5 passa pela API somente em memória até o terminal e não é gravada no navegador, na VPS ou no Connector.
 
-## Instalação
+## Instalação no Windows
 
-1. Instale/abra o MetaTrader 5 da corretora no mesmo computador.
-2. Instale Python 3.12+.
-3. No diretório `connector`:
+1. Instale e abra o MetaTrader 5 oficial da corretora.
+2. Instale Python 3.12 de 64 bits.
+3. No PowerShell, dentro da pasta `connector`:
 
-```bash
-pip install -r requirements.txt
-python mt5_connector.py
+```powershell
+py -3.12 -m venv .venv
+.venv\Scripts\python -m pip install --requirement requirements.txt
 ```
 
-O serviço local inicia em `http://127.0.0.1:8765`.
+4. No painel Signal Pro, clique em **GERAR CÓDIGO DO CONNECTOR**.
+5. Pareie usando o código de 8 dígitos exibido:
 
-## Endpoints
+```powershell
+.venv\Scripts\python mt5_connector.py --pair-code 12345678
+```
 
-- `GET /api/health` — status e conta conectada.
-- `POST /api/connect` — login real no terminal MT5 usando `login`, `password`, `server` e opcional `terminal_path`.
-- `POST /api/disconnect` — encerra a sessão do conector.
-- `GET /api/symbols` — todos os símbolos e especificações retornados pela corretora.
-- `GET /api/candles?symbol=XAUUSD&timeframe=M15&count=300` — candles reais do terminal.
-- `GET /api/positions` — posições abertas.
-- `POST /api/order/check` — valida uma ordem antes do envio.
-- `POST /api/order/send` — envia a ordem; exige `confirm: true`.
+O token do dispositivo é salvo em `%APPDATA%\SignalPro\agent.json`. Senha, login e servidor da conta MT5 não são persistidos. Não compartilhe o arquivo de pareamento.
 
-## Segurança
+## Proteções
 
-A senha é usada para autenticar no terminal e não é persistida pelo conector. Não coloque credenciais MT5 em Supabase, Vercel ou no repositório.
+- outra conta ativa nunca é derrubada por uma tentativa de login;
+- chamadas MT5 são serializadas para evitar corridas;
+- lote respeita `volume_min`, `volume_max` e `volume_step`;
+- `order_check` testa filling modes aceitos pela corretora;
+- envio inicia OFF na VPS e no Connector;
+- envio é permitido somente em conta DEMO, com Stop Loss, idempotência, limite por operação, operações/dia e perda diária;
+- crie `%APPDATA%\SignalPro\KILL_SWITCH` para bloquear imediatamente novos envios;
+- nunca use Martingale.
 
-O robô deve iniciar desligado e ser homologado primeiro em conta DEMO. `order_check` reduz erros de parâmetros/fundos, mas não garante que uma ordem será executada pelo servidor.
+Para habilitar uma homologação DEMO controlada, tanto a VPS quanto o processo local precisam receber `DEMO_TRADING_ENABLED=true` / `SIGNAL_PRO_TRADING_ENABLED=true`. Mantenha OFF até `health`, símbolos, candles, risco e `order_check` passarem.
 
-## Próxima camada
+## API local opcional
 
-A interface web precisa falar com este conector. Como uma página HTTPS hospedada não deve depender diretamente de um serviço HTTP localhost em produção, a versão distribuída deve usar um canal local seguro (ou um agente com conexão de saída autenticada) entre o Connector e o backend Signal Pro.
+`--local-api` habilita compatibilidade local em `127.0.0.1:8765`. Ela nunca deve ser publicada na internet.

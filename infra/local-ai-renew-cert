@@ -1,0 +1,41 @@
+#!/bin/sh
+set -eu
+
+BASE=/opt/local-ai-stack
+SIGNAL_CERTBOT_ETC="$BASE/certbot/etc"
+
+docker run --rm --network host \
+  -v /etc/letsencrypt:/etc/letsencrypt \
+  -v /var/lib/letsencrypt:/var/lib/letsencrypt \
+  -v "$BASE/certbot/www:/var/www/certbot" \
+  certbot/certbot:latest renew --cert-name zplex.com.br \
+  --webroot --webroot-path /var/www/certbot \
+  --non-interactive --no-random-sleep-on-renew
+
+docker run --rm --network host \
+  -v "$SIGNAL_CERTBOT_ETC:/etc/letsencrypt" \
+  -v "$BASE/certbot/lib:/var/lib/letsencrypt" \
+  -v "$BASE/certbot/www:/var/www/certbot" \
+  certbot/certbot:latest renew --cert-name signalpro-ativasite \
+  --webroot --webroot-path /var/www/certbot \
+  --non-interactive --no-random-sleep-on-renew
+
+copy_certificate() {
+  cert_root="$1"
+  cert_name="$2"
+  public_name="$3"
+  private_name="$4"
+  live="$cert_root/live/$cert_name"
+  if [ -f "$live/fullchain.pem" ] && [ -f "$live/privkey.pem" ]; then
+    cp -L "$live/fullchain.pem" "$BASE/proxy/certs/$public_name"
+    cp -L "$live/privkey.pem" "$BASE/proxy/certs/$private_name"
+    chmod 644 "$BASE/proxy/certs/$public_name"
+    chmod 600 "$BASE/proxy/certs/$private_name"
+  fi
+}
+
+copy_certificate /etc/letsencrypt zplex.com.br fullchain.pem privkey.pem
+copy_certificate "$SIGNAL_CERTBOT_ETC" signalpro-ativasite signalpro-fullchain.pem signalpro-privkey.pem
+
+docker exec local-ai-proxy nginx -t
+docker exec local-ai-proxy nginx -s reload

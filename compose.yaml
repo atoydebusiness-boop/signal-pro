@@ -1,0 +1,51 @@
+name: signal-pro
+
+services:
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: signal-pro-web
+    restart: unless-stopped
+    init: true
+    expose:
+      - "8780"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      PORT: "8780"
+      HOST: 0.0.0.0
+      DATA_DIR: /data
+    volumes:
+      - signal_pro_data:/data
+    networks:
+      - signal_pro_internal
+      - proxy
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 384m
+    cpus: "0.75"
+    pids_limit: 128
+    stop_grace_period: 15s
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
+networks:
+  signal_pro_internal:
+    internal: true
+  proxy:
+    external: true
+    name: local-ai-internal
+
+volumes:
+  signal_pro_data:
+    name: signal-pro-data

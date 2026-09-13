@@ -1,0 +1,5 @@
+.git
+.env
+connector/.venv
+connector/__pycache__
+*.log
