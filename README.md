@@ -26,7 +26,15 @@ Login, senha e servidor MT5 não são persistidos. O token do Connector é persi
 - Vercel atual: `/api/market`, usado temporariamente como upstream autenticado pela API da VPS;
 - Windows + terminal MT5: necessário para a integração oficial MetaTrader 5.
 
-A Vercel deve permanecer até as chaves dos provedores de mercado serem migradas para a VPS. Nenhuma migração de banco foi aplicada nesta etapa porque não há migrations nem credencial administrativa do projeto Supabase no repositório.
+A Vercel deve permanecer até as chaves dos provedores de mercado serem migradas para a VPS. As migrations do Supabase ficam versionadas em `supabase/migrations/`.
+
+## Variáveis de ambiente
+
+- Cadastro e login: `SUPABASE_URL` e `SUPABASE_PUBLISHABLE_KEY` (chave pública; nunca usar `service_role` no navegador).
+- Mercado: `LSE_API_KEY` como fonte principal; `FINNHUB_API_KEY` e `TWELVE_DATA_API_KEY` são fallbacks opcionais.
+- Pagamentos: `MERCADOPAGO_ACCESS_TOKEN` e `MERCADOPAGO_WEBHOOK_SECRET`, somente no backend.
+
+O nome correto é `MERCADOPAGO_ACCESS_TOKEN`. A variável `MERCADOPAGO_ACCESS_TOKENv` exibida no projeto antigo contém um sufixo incorreto e não é lida pelo código.
 
 ## Desenvolvimento
 

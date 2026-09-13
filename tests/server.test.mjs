@@ -54,6 +54,8 @@ test("auth, pairing, relay and demo order guard", async () => {
   const userHeaders = { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
   try {
     await waitFor(`${base}/api/health`);
+    const loginPage = await (await fetch(`${base}/login.html`)).text();
+    assert.match(loginPage, /emailRedirectTo: location\.origin \+ "\/"/);
     assert.equal((await fetch(`${base}/api/market`)).status, 401);
     assert.equal((await fetch(`${base}/api/market`, { headers: userHeaders })).status, 200);
 

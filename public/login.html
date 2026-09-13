@@ -504,7 +504,10 @@
         const r =
           mode === "in"
             ? await sb.auth.signInWithPassword(c)
-            : await sb.auth.signUp(c);
+            : await sb.auth.signUp({
+                ...c,
+                options: { emailRedirectTo: location.origin + "/" },
+              });
         if (r.error) {
           m.textContent = r.error.message;
           return;
