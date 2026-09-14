@@ -1,0 +1,1 @@
+export default function handler(req,res){res.setHeader('Cache-Control','no-store');const publicKey=process.env.MERCADOPAGO_PUBLIC_KEY||process.env.MP_PUBLIC_KEY||process.env.PUBLIC_KEY||'';res.status(publicKey?200:503).json({publicKey,configured:Boolean(publicKey)});}
