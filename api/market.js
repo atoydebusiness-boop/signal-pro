@@ -1,6 +1,6 @@
 let memoryCache = null;
 let memoryCacheAt = 0;
-const CACHE_MS = 55000;
+const CACHE_MS = 5000;
 const MAX_CANDLE_AGE_MS = 4 * 60 * 1000;
 
 function parseCandleTime(value) {
