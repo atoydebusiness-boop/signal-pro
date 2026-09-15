@@ -2,8 +2,7 @@
   "version": 2,
   "rewrites": [
     {"source":"/","destination":"/public/index.html"},
-    {"source":"/app.html","destination":"/public/dashboard.html"},
-    {"source":"/scanner","destination":"/public/app.html"},
+    {"source":"/scanner","destination":"/public/scanner.html"},
     {"source":"/assinar","destination":"/public/assinar.html"},
     {"source":"/avalon","destination":"/public/avalon.html"},
     {"source":"/avalon/start","destination":"/public/avalon/start.html"},
