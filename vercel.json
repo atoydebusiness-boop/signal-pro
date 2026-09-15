@@ -3,6 +3,7 @@
   "rewrites": [
     {"source":"/","destination":"/index.html"},
     {"source":"/scanner","destination":"/scanner.html"},
+    {"source":"/robot","destination":"/robot.html"},
     {"source":"/assinar","destination":"/assinar.html"},
     {"source":"/avalon","destination":"/avalon.html"},
     {"source":"/avalon/start","destination":"/avalon/start.html"},
