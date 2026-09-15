@@ -4,7 +4,8 @@
 <script type="module">
 const title=document.getElementById('title'),msg=document.getElementById('msg');
 async function jsonResponse(url,options){const response=await fetch(url,options),text=await response.text();let data={};try{data=text?JSON.parse(text):{}}catch{throw Error(`Servidor respondeu ${response.status} sem JSON válido.`)}if(!response.ok)throw Error(data.message||data.error||`Erro HTTP ${response.status}`);return data}
-function fail(error){title.textContent='Não foi possível conectar';title.className='err';msg.textContent=error?.message||'Falha na integração Avalon.'}
+function errorText(error){if(error instanceof Error)return error.message;if(typeof error==='string')return error;try{return error?.message||error?.error||JSON.stringify(error)}catch{return 'Falha na integração Avalon.'}}
+function fail(error){title.textContent='Não foi possível conectar';title.className='err';msg.textContent=errorText(error)||'Falha na integração Avalon.'}
 try{
  const params=new URLSearchParams(location.search),code=params.get('code'),error=params.get('error'),state=params.get('state'),expected=sessionStorage.getItem('avalon_oauth_state'),codeVerifier=sessionStorage.getItem('pkce_verifier');
  if(error)throw Error(params.get('error_description')||error);if(!code||!codeVerifier)throw Error('Retorno OAuth incompleto. Inicie a conexão novamente.');if(expected&&state!==expected)throw Error('A validação de segurança do OAuth falhou.');
